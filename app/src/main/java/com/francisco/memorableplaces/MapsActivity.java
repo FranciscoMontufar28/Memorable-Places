@@ -1,12 +1,21 @@
 package com.francisco.memorableplaces;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Build;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
+import android.support.v4.content.ContextCompat;
 import android.widget.Toast;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -16,7 +25,13 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleMap.OnMapLongClickListener {
 
     private GoogleMap mMap;
 
@@ -27,9 +42,23 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
         LatLng userlocation = new LatLng(location.getLatitude(), location.getLongitude());
         mMap.clear();
+        if (title != "Your Location")
         mMap.addMarker(new MarkerOptions().position(userlocation).title(title));
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userlocation, 6));
 
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (grantResults.length>0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED){
+
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,0,0,locationListener);
+                Location lastknowlocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                CenterMapLocation(lastknowlocation, "Your Location");
+            }
+        }
     }
 
     @Override
@@ -52,9 +81,12 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      * it inside the SupportMapFragment. This method will only be triggered once the user has
      * installed Google Play services and returned to the app.
      */
+    @SuppressLint("MissingPermission")
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
+
+        mMap.setOnMapLongClickListener(this);
 
         Intent intent = getIntent();
         if (intent.getIntExtra("Placenumber",0)==0){
@@ -64,7 +96,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 @Override
                 public void onLocationChanged(Location location) {
 
-                    CenterMapLocation(location, "Your location");
+                    CenterMapLocation(location, "Your Location");
                 }
 
                 @Override
@@ -81,7 +113,24 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 public void onProviderDisabled(String s) {
 
                 }
+            };
+
+            if (Build.VERSION.SDK_INT<23){
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,0,0,locationListener);
+            }else{
+                if (ContextCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
+                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},1);
+                }else {
+                    locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,0,0,locationListener);
+                    Location lastknowlocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                    CenterMapLocation(lastknowlocation, "Your Current Location");
+                }
             }
+        }else {
+            Location placelocation = new Location(LocationManager.GPS_PROVIDER);
+            placelocation.setLatitude(MainActivity.latLngs.get(intent.getIntExtra("Placenumber",0)).latitude);
+            placelocation.setLongitude(MainActivity.latLngs.get(intent.getIntExtra("Placenumber",0)).longitude);
+            CenterMapLocation(placelocation,MainActivity.places.get(intent.getIntExtra("Placenumber",0)));
         }
 
         Toast.makeText(this, intent.getStringExtra("Placenumber"), Toast.LENGTH_SHORT).show();
@@ -89,5 +138,34 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         LatLng sydney = new LatLng(-34, 151);
         mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
         mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+    }
+
+    @Override
+    public void onMapLongClick(LatLng latLng) {
+
+        Geocoder geocoder = new Geocoder(getApplicationContext(), Locale.getDefault());
+        String address = "";
+        try {
+            List<Address> addresses = geocoder.getFromLocation(latLng.latitude, latLng.longitude, 1);
+            if (addresses != null && addresses.size()>0){
+                if (addresses.get(0).getThoroughfare()!=null){
+                    if (addresses.get(0).getSubThoroughfare()!=null){
+                        address += addresses.get(0).getThoroughfare().toString() + " "+ addresses.get(0).getSubThoroughfare().toString();
+
+                    }
+                    address += addresses.get(0).getThoroughfare().toString();
+                }
+            }
+        } catch (IOException e) {
+
+        }
+        if (address == ""){
+            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("mm:HH yyyyMMdd");
+            address = simpleDateFormat.format(new Date());
+        }
+        mMap.addMarker(new MarkerOptions().position(latLng).title(address));
+        MainActivity.places.add(address);
+        MainActivity.latLngs.add(latLng);
+        MainActivity.arrayAdapter.notifyDataSetChanged();
     }
 }
